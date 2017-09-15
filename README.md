@@ -1,3 +1,3 @@
 # MvideoEstimatePredictor
 Предсказание общей оценки по тексту отзыва
-test
+Run: main.py -i <абсолютный путь к файлу *.csv>
