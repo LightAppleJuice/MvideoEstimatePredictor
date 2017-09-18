@@ -79,60 +79,80 @@ if __name__ == '__main__':
                                   help='Path to feedback file',
                                   type=str,
                                   required=True)
-    args = arguments_parser.parse_args()
-    df = pd.read_csv(args.input)
-    new_df = df[['reting', 'comment']]
 
+    arguments_parser.add_argument('-t', '--test',
+                                  help='Path to test feedback file',
+                                  type=str,
+                                  required=False)
+
+    arguments_parser.add_argument('-o', '--output',
+                                  help='Path to output feedback file',
+                                  type=str,
+                                  required=False)
+
+    args = arguments_parser.parse_args()
+    train_file = args.input
+
+    df = pd.read_csv(train_file)
+    new_df = df[['reting', 'comment']]
     labs = np.array([int(round(new_df['reting'][i])) - 1 for i in range(len(new_df))])
     traindata = Vector(new_df)
 
-    # traindata = traindata[:100]
-    # labs = labs[:100]
+    # if test in args
+    if args.test is None:
+        array = [i for i in range(len(labs))]
+        random.shuffle(array)
 
-    array = [i for i in range(len(labs))]
-    random.shuffle(array)
-    train_labels = array[1:round(0.80 * len(labs))]
-    test_labels = array[round(0.80 * len(labs)):]
+        train_labels = array[1:round(0.80 * len(labs))]
+        test_labels = array[round(0.80 * len(labs)):]
 
-    testdata = [traindata[index] for index in test_labels]
+        testdata = [traindata[index] for index in test_labels]
+        traindata = [traindata[index] for index in train_labels]
+
+        y_train = labs[train_labels]
+        y_test = labs[test_labels]
+
+    else:
+        y_train = labs
+        test_file = args.test
+        df_test = pd.read_csv(test_file)
+        new_df_test = df_test[['comment']]
+        testdata = Vector(new_df_test)
 
     print("count tf-idf... ")
     tfv = TfidfVectorizer(min_df=3, max_features=None,
                           strip_accents='unicode', analyzer='word', token_pattern=r'\w{1,}',
                           ngram_range=(1, 4), use_idf=1, smooth_idf=1, sublinear_tf=1)
 
-    tfv.fit([traindata[index] for index in train_labels])
-    X = tfv.transform(traindata)
-    print("test SVC model")
+    tfv.fit(traindata)
+    X_train = tfv.transform(traindata)
+    X_test = tfv.transform(testdata)
 
+    print("test SVC model")
     model = LinearSVC(penalty='l2', loss='squared_hinge', dual=False, tol=0.0001, C=1.0, multi_class='ovr',
                       fit_intercept=True, intercept_scaling=1, class_weight=None, verbose=0, random_state=None,
                       max_iter=1000)
 
-    n_cv = 10
-    # X = np.array(X)
-    # shuffled_idx = list(range(X.shape[0]))
-    tst_len = (X.shape[0]) // n_cv
-    n = 0
-
     lsi = TruncatedSVD(2000)
-    X_lsi = csr_matrix(lsi.fit_transform(X))
-    X = X_lsi  # hstack([X, X_lsi], format='csr')
-
-    X_train = X[train_labels]
-    X_test = X[test_labels]
-    y_train = labs[train_labels]
-    y_test = labs[test_labels]
+    X_train = csr_matrix(lsi.fit_transform(X_train))
+    X_test = csr_matrix(lsi.transform(X_test))
 
     model.fit(X_train, y_train)
     result = model.predict(X_test)  # _proba(X_test)
-
     tmp = preDetector(testdata)
 
-    for i, y in enumerate(y_test):
+    for i, y in enumerate(result):
         if tmp[i]:
-            result[i] = 1
-        if y == result[i]:
-            # print (i, y, result[i], new_df['comment'][10000+i])
-            n += 1
-    print('Quality: {}'.format(n / X_test.shape[0]))
+            result[i] = 0
+
+    if args.test is None:
+        n = 0
+        for i, y in enumerate(y_test):
+            if y == result[i]:
+                # print (i, y, result[i], new_df['comment'][10000+i])
+                n += 1
+        print('Quality: {}'.format(n / X_test.shape[0]))
+    else:
+        df_test.insert(7, 'reting', result)
+        df_test.to_csv(args.output)
+        # save csv
